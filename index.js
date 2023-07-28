@@ -186,7 +186,7 @@ async function run() {
     // create payment intent
     app.post("/create-payment-internet", verifyToken, async (req, res) => {
       const { price } = req.body;
-      const amount = price * 100;
+      const amount = parseInt(price * 100);
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
         currency: "usd",
@@ -208,6 +208,49 @@ async function run() {
       const deleteResult = await cartCollection.deleteMany(query);
 
       res.send({ insertResult, deleteResult });
+    });
+
+    // admin stats
+    app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentsCollection.estimatedDocumentCount();
+
+      const payments = await paymentsCollection.find().toArray();
+      const revenue = payments.reduce(
+        (total, payment) => total + payment.price,
+        0
+      );
+      // console.log(revenue);
+      res.send({ users, products, orders, revenue });
+    });
+
+    //aggregate pipeline
+    app.get("/order-stats", async (req, res) => {
+      const pipeline = [
+        {
+          $lookup: {
+            from: "menu",
+            localField: "menuItems",
+            foreignField: "_id",
+            as: "menuItemsData",
+          },
+        },
+        {
+          $unwind: "$menuItemsData",
+        },
+        {
+          $group: {
+            _id: "$menuItemsData.itemName",
+            count: { $sum: 1 },
+            totalPrice: { $sum: "$menuItemsData.price" },
+          },
+        },
+      ];
+      console.log(pipeline);
+      const result = await paymentsCollection.aggregate(pipeline).toArray();
+
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
